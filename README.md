@@ -1,10 +1,10 @@
-- 2025.9.16更新，支持多币种套利。
-- 示例用法: 
-- set PAIR = ETH
-- python -m app.main
-- 或者
-- python -m app.main --spot ETHUSDT --coinm ETHUSD_PERP
-- 注：币安测试网仅有BTC可以用，其它都无法使用。
+## 2025.9.16更新，支持多币种套利。
+### 示例用法: 
+### set PAIR = ETH
+### python -m app.main
+### 或者
+### python -m app.main --spot ETHUSDT --coinm ETHUSD_PERP
+### 注：币安测试网仅有BTC可以用，其它都无法使用。
 ---------------------------------------------------------------------------
 
 # SPOT-CM-arbitrage
