@@ -9,8 +9,7 @@ from arbitrage.strategy.frontier import (
     collect_frontier_candidates, print_per_level_book_edge, place_entry_from_row
 )
 from arbitrage.exchanges.exec_binance_rest import (
-    place_spot_limit_maker, place_spot_market,
-    place_coinm_limit, place_coinm_market
+    place_spot_limit_maker, place_coinm_limit
 )
 
 def vwap_slippage_bps(levels, qty):
@@ -30,7 +29,8 @@ def print_levels_if_needed(PRINT_LEVELS, position, AUTO_FROM_FRONTIER,
         )
 
 def try_enter_from_frontier(spot_bids, spot_asks, cm_bids, cm_asks,
-                            contract_size, spot_step, cm_step):
+                            contract_size, spot_step, cm_step,
+                            spot_symbol: str, coinm_symbol: str):
     rows_fwd, rows_rev = collect_frontier_candidates(
         spot_bids, spot_asks, cm_bids, cm_asks,
         contract_size_usd=contract_size, max_levels=50,
@@ -41,13 +41,16 @@ def try_enter_from_frontier(spot_bids, spot_asks, cm_bids, cm_asks,
     if not cand: return False, None
     best = max(cand, key=lambda r: r[6])
     side = "POS" if best in rows_fwd else "NEG"
-    ok, Q_used, N_used, tid = place_entry_from_row(side, best, spot_step, cm_step, contract_size)
+    ok, Q_used, N_used, tid = place_entry_from_row(side, best, spot_step, cm_step, contract_size,
+                                                   spot_symbol, coinm_symbol)
     if ok:
-        return True, Position(side=side, Q=Q_used, N=N_used, trade_id=tid)
+        return True, Position(side=side, Q=Q_used, N=N_used, trade_id=tid,
+                              spot_symbol=spot_symbol, coinm_symbol=coinm_symbol)
     return False, None
 
 def try_enter(spread_bps, spot_mid, spot_bids, spot_asks, cm_bids, cm_asks,
-              contract_size, spot_step, cm_step):
+              contract_size, spot_step, cm_step,
+              spot_symbol: str, coinm_symbol: str):
     if ONLY_POSITIVE_CARRY and spread_bps <= ENTER_BPS: return (False, None)
     if abs(spread_bps) < ENTER_BPS: return (False, None)
 
@@ -55,6 +58,7 @@ def try_enter(spread_bps, spot_mid, spot_bids, spot_asks, cm_bids, cm_asks,
     N = V_USD / contract_size
 
     if spread_bps > 0:
+        # 正向：买现货 / 卖合约
         filled_q_buy, _, bps_spot = vwap_slippage_bps(spot_asks, Q)
         filled_n_sell, _, bps_cm = vwap_slippage_bps(cm_bids, N)
         if filled_q_buy < Q or (bps_spot and bps_spot > MAX_SLIPPAGE_BPS_SPOT) or (bps_cm and bps_cm > MAX_SLIPPAGE_BPS_COINM):
@@ -62,19 +66,20 @@ def try_enter(spread_bps, spot_mid, spot_bids, spot_asks, cm_bids, cm_asks,
         px_spot_bid = spot_bids[0][0]
         px_cm_ask   = cm_asks[0][0]
         print(f"✔ 入场正向：Q≈{Q:.6f} BTC, N≈{N:.0f} 张 | spot_bid={px_spot_bid:.2f}, cm_ask={px_cm_ask:.1f}")
-        place_spot_limit_maker("BUY",  Q, px_spot_bid)
-        place_coinm_limit     ("SELL", N, px_cm_ask, post_only=True)
-        return True, Position(side="POS", Q=Q, N=int(N))
+        place_spot_limit_maker("BUY",  Q, px_spot_bid, symbol=spot_symbol)
+        place_coinm_limit     ("SELL", N, px_cm_ask, post_only=True, symbol=coinm_symbol)
+        return True, Position(side="POS", Q=Q, N=int(N), spot_symbol=spot_symbol, coinm_symbol=coinm_symbol)
     else:
+        # 反向：卖现货 / 买合约
         filled_q_sell, _, bps_spot = vwap_slippage_bps(spot_bids, Q)
         filled_n_buy,  _, bps_cm   = vwap_slippage_bps(cm_asks, N)
         if filled_q_sell < Q or (bps_spot and bps_spot > MAX_SLIPPAGE_BPS_SPOT) or (bps_cm and bps_cm > MAX_SLIPPAGE_BPS_COINM):
             print(f"❌ 深度/滑点不满足(反向): spot {bps_spot:.2f}bp, coinm {bps_cm:.2f}bp");  return (False, None)
         px_spot_ask = spot_asks[0][0]; px_cm_bid = cm_bids[0][0]
         print(f"✔ 入场反向：Q≈{Q:.6f} BTC, N≈{N:.0f} 张 | spot_ask={px_spot_ask:.2f}, cm_bid={px_cm_bid:.1f}")
-        place_spot_limit_maker("SELL", Q, px_spot_ask)
-        place_coinm_limit     ("BUY",  N, px_cm_bid, post_only=True)
-        return True, Position(side="NEG", Q=Q, N=int(N))
+        place_spot_limit_maker("SELL", Q, px_spot_ask, symbol=spot_symbol)
+        place_coinm_limit     ("BUY",  N, px_cm_bid, post_only=True, symbol=coinm_symbol)
+        return True, Position(side="NEG", Q=Q, N=int(N), spot_symbol=spot_symbol, coinm_symbol=coinm_symbol)
 
 def need_exit(spread_bps, position):
     if position is None:
@@ -85,14 +90,18 @@ def need_exit(spread_bps, position):
     if age >= MAX_HOLD_SEC:         return True, "TIME"
     return False, ""
 
+from arbitrage.exchanges.exec_binance_rest import (
+    place_spot_market, place_coinm_market
+)
+
 def do_exit(position: Position):
     print(f"→ 平仓触发：side={position.side}, Q={position.Q}, N={position.N}（MARKET 平仓）")
     if position.side == "POS":
-        so = place_spot_market("SELL", position.Q)
-        co = place_coinm_market("BUY",  position.N, reduce_only=True)
+        so = place_spot_market("SELL", position.Q, symbol=position.spot_symbol)
+        co = place_coinm_market("BUY",  position.N, reduce_only=True, symbol=position.coinm_symbol)
     else:
-        so = place_spot_market("BUY",  position.Q)
-        co = place_coinm_market("SELL", position.N, reduce_only=True)
+        so = place_spot_market("BUY",  position.Q, symbol=position.spot_symbol)
+        co = place_coinm_market("SELL", position.N, reduce_only=True, symbol=position.coinm_symbol)
 
     append_trade_row({
         "event": "CLOSE",
@@ -100,6 +109,6 @@ def do_exit(position: Position):
         "side": position.side,
         "Q_btc": f"{position.Q:.8f}",
         "N_cntr": int(position.N),
-        "spot_orderId": so.get("orderId",""),
-        "cm_orderId": co.get("orderId",""),
+        "spot_orderId": (so.get("orderId","") if isinstance(so, dict) else ""),
+        "cm_orderId":   (co.get("orderId","") if isinstance(co, dict) else ""),
     })
