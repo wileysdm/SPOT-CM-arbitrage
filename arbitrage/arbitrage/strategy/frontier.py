@@ -95,7 +95,8 @@ def collect_frontier_candidates(spot_bids, spot_asks, cm_bids, cm_asks,
     rows_rev = [] if only_positive_carry else collect(spot_bids, cm_asks, "rev")
     return rows_fwd, rows_rev
 
-def place_entry_from_row(side, row, spot_step, cm_step, contract_size):
+def place_entry_from_row(side, row, spot_step, cm_step, contract_size,
+                         spot_symbol: str, coinm_symbol: str):
     i_s, j_c, V_row, sv, pv, bp, edge_row, Q_need, N_need = row
     Q0 = round_step(Q_need, spot_step, mode="floor")
     N0 = int(round_step(N_need, cm_step, mode="floor"))
@@ -118,31 +119,31 @@ def place_entry_from_row(side, row, spot_step, cm_step, contract_size):
     # 下单
     if EXECUTION_MODE.lower() == "taker":
         if side == "POS":
-            spot_o = place_spot_market("BUY", Q)
-            cm_o   = place_coinm_market("SELL", N, reduce_only=False)
+            spot_o = place_spot_market("BUY", Q, symbol=spot_symbol)
+            cm_o   = place_coinm_market("SELL", N, reduce_only=False, symbol=coinm_symbol)
         else:
-            spot_o = place_spot_market("SELL", Q)
-            cm_o   = place_coinm_market("BUY",  N, reduce_only=False)
+            spot_o = place_spot_market("SELL", Q, symbol=spot_symbol)
+            cm_o   = place_coinm_market("BUY",  N, reduce_only=False, symbol=coinm_symbol)
     else:
-        spot_bids, spot_asks = get_spot_depth(5)
-        cm_bids,   cm_asks   = get_coinm_depth(5)
+        spot_bids, spot_asks = get_spot_depth(5, symbol=spot_symbol)
+        cm_bids,   cm_asks   = get_coinm_depth(5, symbol=coinm_symbol)
         if side == "POS":
-            spot_o = place_spot_limit_maker("BUY",  Q, spot_bids[0][0])
-            cm_o   = place_coinm_limit     ("SELL", N, cm_asks[0][0], post_only=True)
+            spot_o = place_spot_limit_maker("BUY",  Q, spot_bids[0][0], symbol=spot_symbol)
+            cm_o   = place_coinm_limit     ("SELL", N, cm_asks[0][0], post_only=True, symbol=coinm_symbol)
         else:
-            spot_o = place_spot_limit_maker("SELL", Q, spot_asks[0][0])
-            cm_o   = place_coinm_limit     ("BUY",  N, cm_bids[0][0], post_only=True)
+            spot_o = place_spot_limit_maker("SELL", Q, spot_asks[0][0], symbol=spot_symbol)
+            cm_o   = place_coinm_limit     ("BUY",  N, cm_bids[0][0], post_only=True, symbol=coinm_symbol)
 
     # Funding 信息（仅打印）
     if ENABLE_FUNDING_INFO:
-        fr_bp, nxt = get_coinm_funding()
+        fr_bp, nxt = get_coinm_funding(coinm_symbol)
         will_cross, eta_sec = will_cross_next_funding(nxt, MAX_HOLD_SEC, FUNDING_BUFFER_SEC)
         cross_txt = f"将跨结算(~{eta_sec:.0f}s)" if will_cross else "不跨结算"
         print(f"[Funding] fr={fr_bp:.2f}bp | {cross_txt}")
 
     # 保证金风控
     if ENABLE_CM_RISK_CHECK:
-        ok, info = check_cm_margin_ok()
+        ok, info = check_cm_margin_ok(coinm_symbol)
         if not ok:
             print(f"❌ 保证金风控未通过：{info}；拒绝本次入场")
             return (False, 0.0, 0, "")
@@ -153,7 +154,7 @@ def place_entry_from_row(side, row, spot_step, cm_step, contract_size):
 
     # 单腿监控（只护航，不在这里做记账，平仓统一记）
     try:
-        monitor_and_rescue_single_leg(side, spot_o, cm_o, Q, N)
+        monitor_and_rescue_single_leg(side, spot_o, cm_o, Q, N, spot_symbol, coinm_symbol)
     except Exception as e:
         print("单腿监控异常（忽略继续）：", e)
 
@@ -163,8 +164,8 @@ def place_entry_from_row(side, row, spot_step, cm_step, contract_size):
             "event": "OPEN", "trade_id": trade_id, "side": side,
             "Q_btc": f"{Q:.8f}", "N_cntr": int(N),
             "spot_vwap": f"{sv:.2f}", "perp_vwap": f"{pv:.2f}",
-            "spot_orderId": spot_o.get("orderId",""),
-            "cm_orderId": cm_o.get("orderId",""),
+            "spot_orderId": (spot_o.get("orderId","") if isinstance(spot_o, dict) else ""),
+            "cm_orderId":   (cm_o.get("orderId","")   if isinstance(cm_o, dict)   else ""),
             "fee_btc_spot": "", "fee_btc_cm": "", "income_btc": "", "delta_btc": ""
         })
     except Exception as e:
