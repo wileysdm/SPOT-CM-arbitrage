@@ -1,7 +1,9 @@
 import os
 
 # —— 运行参数 ——
-DRY_RUN = False
+# config.py
+DRY_RUN = True  # 先设成 True，保证不会下真实单
+
 RUN_SECONDS = 60
 POLL_INTERVAL = 0.6
 
@@ -40,17 +42,20 @@ MARGIN_RATIO_MAX = 0.70
 PRINT_LEVELS = True
 LEVELS_TO_PRINT = 5
 
-# —— 交易对象 & 端点 ——
-SPOT_SYMBOL  = "BTCUSDT"
-COINM_SYMBOL = "BTCUSD_PERP"
+# —— 交易对象 & 端点 ——（支持多币对：PAIR 推导，可由环境变量覆盖）
+PAIR = os.environ.get("PAIR", "BTC").upper()
+SPOT_SYMBOL  = os.environ.get("SPOT_SYMBOL",  f"{PAIR}USDT")
+COINM_SYMBOL = os.environ.get("COINM_SYMBOL", f"{PAIR}USD_PERP")
 
-SPOT_BASE = "https://testnet.binance.vision"
-DAPI_BASE = "https://testnet.binancefuture.com"
+SPOT_BASE = "https://api.binance.com"
+DAPI_BASE = "https://dapi.binance.com"
+#SPOT_BASE = "https://testnet.binance.vision"
+#DAPI_BASE = "https://testnet.binancefuture.com"
 
 SPOT_KEY    = os.environ.get("SPOT_KEY", "")
 SPOT_SECRET = os.environ.get("SPOT_SECRET", "")
 DAPI_KEY    = os.environ.get("DAPI_KEY", "")
 DAPI_SECRET = os.environ.get("DAPI_SECRET", "")
 
-# —— 交易日志 ——
-TRADES_CSV = "trades_log.csv"
+# —— 交易日志 ——（按币种分文件）
+TRADES_CSV = os.environ.get("TRADES_CSV", f"trades_{PAIR.lower()}.csv")
