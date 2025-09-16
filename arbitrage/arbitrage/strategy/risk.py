@@ -10,7 +10,7 @@ def check_cm_margin_ok(symbol=None):
             if symbol is None or it.get("symbol") == symbol:
                 rp = it; break
 
-        mark = get_coinm_mark()
+        mark = get_coinm_mark(symbol)
         liq  = float(rp.get("liquidationPrice", 0.0) if rp else 0.0)
         if liq and liq > 0: dist = abs((mark - liq) / mark)
         else: dist = 1.0
