@@ -6,6 +6,8 @@ class Position:
     side: str   # "POS" or "NEG"
     Q: float
     N: int
+    spot_symbol: str = ""
+    coinm_symbol: str = ""
     t0: float = field(default_factory=time.time)
     trade_id: str = ""
 
