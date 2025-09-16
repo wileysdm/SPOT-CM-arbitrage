@@ -7,6 +7,7 @@ from arbitrage.exchanges.exec_binance_rest import (
 
 def monitor_and_rescue_single_leg(side: str, spot_order: dict, cm_order: dict,
                                   expect_Q: float, expect_N: int,
+                                  spot_symbol: str, coinm_symbol: str,
                                   timeout_sec: float = PAIR_TIMEOUT_SEC,
                                   poll_interval: float = PAIR_POLL_INTERVAL):
     if DRY_RUN:
@@ -22,8 +23,8 @@ def monitor_and_rescue_single_leg(side: str, spot_order: dict, cm_order: dict,
     spot_filled = cm_filled = 0.0
 
     while time.time() < deadline:
-        _, s_exec = get_spot_order_status(soid)
-        _, c_exec = get_coinm_order_status(coid)
+        _, s_exec = get_spot_order_status(soid, symbol=spot_symbol)
+        _, c_exec = get_coinm_order_status(coid, symbol=coinm_symbol)
         spot_filled = max(spot_filled, s_exec)
         cm_filled   = max(cm_filled,   c_exec)
         if (spot_filled > 0.0) and (cm_filled > 0.0):
@@ -34,11 +35,11 @@ def monitor_and_rescue_single_leg(side: str, spot_order: dict, cm_order: dict,
     if (spot_filled > 0.0) and (cm_filled == 0.0):
         qty = spot_filled if spot_filled > 0 else expect_Q
         print(f"‼ 单腿：仅现货成交 {qty:.6f} BTC → 市价平掉")
-        place_spot_market("SELL" if side=="POS" else "BUY", qty)
+        place_spot_market("SELL" if side=="POS" else "BUY", qty, symbol=spot_symbol)
     elif (cm_filled > 0.0) and (spot_filled == 0.0):
         n = int(cm_filled if cm_filled > 0 else expect_N)
         print(f"‼ 单腿：仅合约成交 {n} 张 → reduceOnly 市价平掉")
         if side == "POS":
-            place_coinm_market("BUY",  n, reduce_only=True)
+            place_coinm_market("BUY",  n, reduce_only=True, symbol=coinm_symbol)
         else:
-            place_coinm_market("SELL", n, reduce_only=True)
+            place_coinm_market("SELL", n, reduce_only=True, symbol=coinm_symbol)
