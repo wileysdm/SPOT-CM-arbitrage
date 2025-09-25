@@ -7,14 +7,12 @@ from arbitrage.config import (
     SPOT_SYMBOL, COINM_SYMBOL,
     AUTO_FROM_FRONTIER, PRINT_LEVELS, LEVELS_TO_PRINT
 )
-from arbitrage.exchanges.md_binance_rest import (
-    get_spot_depth_with_ts, get_coinm_depth_with_ts, get_coinm_mark
-)
 from arbitrage.exchanges.rules import fetch_spot_rules, fetch_coinm_rules
 from arbitrage.strategy.logic import (
     try_enter_from_frontier, try_enter, need_exit, do_exit,
     print_levels_if_needed
 )
+from arbitrage.feeds import Feed  # 用 Feed 封装 WS/REST 获取簿与价差
 
 def main():
     parser = argparse.ArgumentParser()
@@ -32,22 +30,18 @@ def main():
     t0 = time.time()
     placed_any = False
 
+    feed = Feed(spot_symbol, coinm_symbol)   # ← 新：一行搞定“REST快照+WS维护”
+    feed.start()
+
     while time.time() - t0 < RUN_SECONDS:
         try:
-            spot_bids, spot_asks, t_spot = get_spot_depth_with_ts(limit=100, symbol=spot_symbol)
-            cm_bids,   cm_asks,   t_cm   = get_coinm_depth_with_ts(limit=100, symbol=coinm_symbol)
-
-            if not (spot_bids and spot_asks and cm_bids and cm_asks):
-                print("簿为空，等待..."); time.sleep(POLL_INTERVAL); continue
-
-            skew_ms = abs(t_cm - t_spot) * 1000.0
+            ok, spread_bps, spot_mid, perp_mark, spot_bids, spot_asks, cm_bids, cm_asks, skew_ms = feed.get_snapshot()
+            if not ok:
+                time.sleep(POLL_INTERVAL); continue
             if skew_ms > MAX_BOOK_SKEW_MS:
-                print(f"⏱️ 簿时间差 {skew_ms:.0f}ms > {MAX_BOOK_SKEW_MS}ms，丢弃本次信号")
+                # 本地两本簿时间差较大时，略过这次判定
                 time.sleep(POLL_INTERVAL); continue
 
-            spot_mid  = (spot_bids[0][0] + spot_asks[0][0]) / 2.0
-            perp_mark = get_coinm_mark(coinm_symbol)
-            spread_bps = (perp_mark - spot_mid) / spot_mid * 10000.0
             pos_side = None if position is None else position.side
             print(f"spread={spread_bps:.2f}bp | spot_mid={spot_mid:.2f} mark={perp_mark:.2f} | pos={pos_side}")
 
@@ -86,6 +80,7 @@ def main():
         except Exception as e:
             print("Error:", e); time.sleep(1.0)
 
+    feed.stop()
     print("== 结束 ==")
     print("是否曾下过单：", placed_any)
 
